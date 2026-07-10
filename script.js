@@ -30,7 +30,9 @@ let currentSort = 'rating';
 let searchTerm = '';
 let currentTheme = localStorage.getItem('ideahub_theme') || 'dark';
 let currentUser = null;
-let currentIdeaComments = {};
+let viewHistory = JSON.parse(localStorage.getItem('ideahub_history')) || [];
+let achievements = JSON.parse(localStorage.getItem('ideahub_achievements')) || [];
+let accounts = JSON.parse(localStorage.getItem('ideahub_accounts')) || [];
 
 // ===== DOM =====
 const grid = document.getElementById('cardsGrid');
@@ -50,6 +52,7 @@ const userInfo = document.getElementById('userInfo');
 const guestActions = document.getElementById('guestActions');
 const userName = document.getElementById('userName');
 const userAvatar = document.getElementById('userAvatar');
+const userAvatarWrapper = document.getElementById('userAvatarWrapper');
 
 // ===== УВЕДОМЛЕНИЯ =====
 function showNotification(message, type = 'success') {
@@ -102,24 +105,40 @@ function setCurrentUser(user) {
 function signUp(name, email, password) {
   const users = getUsers();
   
-  // Проверка на существующего пользователя
   if (users.find(u => u.email === email)) {
     showNotification('Пользователь с таким email уже существует', 'error');
     return false;
   }
 
-  // Создаём нового пользователя
   const newUser = {
     id: Date.now(),
     name,
     email,
-    password // В реальном проекте нужно хешировать!
+    password,
+    joined: new Date().toISOString(),
+    bio: '',
+    username: '@' + name.toLowerCase().replace(/\s/g, ''),
+    country: '',
+    city: '',
+    links: '',
+    settings: {
+      theme: 'dark',
+      animations: true,
+      blur: true,
+      compact: false,
+      size: 'medium'
+    }
   };
   
   users.push(newUser);
   saveUsers(users);
   
-  // Автоматически входим
+  // Добавляем в список аккаунтов
+  if (!accounts.find(a => a.email === email)) {
+    accounts.push({ id: newUser.id, name: newUser.name, email: newUser.email });
+    localStorage.setItem('ideahub_accounts', JSON.stringify(accounts));
+  }
+  
   setCurrentUser({ id: newUser.id, name: newUser.name, email: newUser.email });
   showNotification(`Добро пожаловать, ${name}!`);
   return true;
@@ -151,476 +170,53 @@ function updateUI() {
     guestActions.style.display = 'none';
     userName.textContent = currentUser.name;
     userAvatar.textContent = currentUser.name.charAt(0).toUpperCase();
-    document.getElementById('profileSection').style.display = 'flex';
-    document.getElementById('profileEmail').textContent = currentUser.email;
   } else {
     userInfo.style.display = 'none';
     guestActions.style.display = 'flex';
-    document.getElementById('profileSection').style.display = 'none';
-  }
-}
-
-// ===== КОММЕНТАРИИ =====
-function loadComments(ideaId) {
-  const allComments = JSON.parse(localStorage.getItem('ideahub_comments')) || {};
-  return allComments[ideaId] || [];
-}
-
-function saveComments(ideaId, comments) {
-  const allComments = JSON.parse(localStorage.getItem('ideahub_comments')) || {};
-  allComments[ideaId] = comments;
-  localStorage.setItem('ideahub_comments', JSON.stringify(allComments));
-}
-
-function addComment(ideaId, text) {
-  if (!currentUser) {
-    showNotification('Войдите, чтобы оставить комментарий', 'error');
-    return;
   }
   
-  const comments = loadComments(ideaId);
-  comments.push({
-    id: Date.now(),
-    user_name: currentUser.name,
-    text: text,
-    created_at: new Date().toISOString()
-  });
-  saveComments(ideaId, comments);
-  showNotification('Комментарий добавлен');
+  // Обновляем профиль если на странице профиля
+  if (window.location.pathname.includes('profile.html')) {
+    updateProfilePage();
+  }
 }
 
-// ===== ИЗБРАННОЕ И ЛАЙКИ =====
-function toggleFav(id) {
-  if (!currentUser) {
-    showNotification('Войдите, чтобы добавить в избранное', 'error');
-    return;
-  }
+// ===== ИСТОРИЯ ПРОСМОТРОВ =====
+function addToHistory(ideaId) {
+  const idea = ideas.find(i => i.id === ideaId);
+  if (!idea) return;
   
-  const index = favorites.indexOf(id);
-  if (index > -1) {
-    favorites.splice(index, 1);
-  } else {
-    favorites.push(id);
-  }
-  localStorage.setItem('ideahub_favs', JSON.stringify(favorites));
-  renderCards();
+  viewHistory = viewHistory.filter(item => item.id !== ideaId);
+  viewHistory.unshift({
+    id: ideaId,
+    name: idea.name,
+    timestamp: new Date().toISOString()
+  });
+  
+  if (viewHistory.length > 50) viewHistory.pop();
+  localStorage.setItem('ideahub_history', JSON.stringify(viewHistory));
 }
 
-function toggleLike(id) {
-  if (!currentUser) {
-    showNotification('Войдите, чтобы оценить идею', 'error');
-    return;
-  }
-  
-  likes[id] = (likes[id] || 0) + 1;
-  localStorage.setItem('ideahub_likes', JSON.stringify(likes));
-  renderCards();
+function getHistory() {
+  return viewHistory;
 }
 
-// ===== ОТРИСОВКА КАРТОЧЕК =====
-function renderCards() {
-  if (!grid) {
-    console.error('❌ cardsGrid не найден!');
-    return;
-  }
-
-  let filtered = ideas.filter(idea => {
-    const matchCat = currentFilter === 'all' || idea.category === currentFilter;
-    const matchSearch = idea.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      idea.category.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchCat && matchSearch;
-  });
-
-  if (currentSort === 'rating') filtered.sort((a, b) => b.rating - a.rating);
-  else if (currentSort === 'capital') filtered.sort((a, b) => a.capital - b.capital);
-
-  grid.innerHTML = '';
+// ===== ДОСТИЖЕНИЯ =====
+function checkAchievements() {
+  const newAchievements = [];
   
-  if (filtered.length === 0) {
-    grid.innerHTML = `<div class="text-center text-gray-400 py-8">Идей не найдено 😕</div>`;
-    return;
+  // Первые просмотры
+  if (viewHistory.length >= 5 && !achievements.find(a => a.id === 'view5')) {
+    newAchievements.push({ id: 'view5', icon: '👀', name: 'Любопытный', desc: 'Просмотрено 5 идей' });
   }
-
-  filtered.forEach((idea, idx) => {
-    const isFav = currentUser && favorites.includes(idea.id);
-    const likeCount = likes[idea.id] || 0;
-    const card = document.createElement('div');
-    card.className = 'glass-card';
-    card.dataset.id = idea.id;
-    card.style.animationDelay = `${idx * 30}ms`;
-    card.innerHTML = `
-      <div class="flex justify-between items-start mb-2">
-        <h3 class="text-lg font-semibold tracking-tight">${idea.name}</h3>
-        <button class="fav-btn ${isFav ? 'active' : ''}" data-id="${idea.id}">${isFav ? '❤️' : '🤍'}</button>
-      </div>
-      <div class="flex flex-wrap gap-1 mb-3">
-        <span class="card-tag">${idea.category}</span>
-        <span class="card-tag">💰 $${idea.capital.toLocaleString()}</span>
-        <span class="card-tag">⚡ ${idea.complexity}</span>
-        <span class="card-tag">📈 ${idea.potential}</span>
-      </div>
-      <div class="flex items-center justify-between mt-2">
-        <div class="flex items-center gap-2">
-          <span class="rating-badge"><span class="rating-star">★</span> ${idea.rating.toFixed(1)}</span>
-          <button class="like-btn" data-id="${idea.id}">👍 ${likeCount}</button>
-        </div>
-        <span class="text-xs text-gray-500">${idea.desc.slice(0, 25)}…</span>
-      </div>
-    `;
-    grid.appendChild(card);
-  });
-
-  attachCardEvents();
-}
-
-function attachCardEvents() {
-  document.querySelectorAll('.glass-card').forEach(card => {
-    card.removeEventListener('click', handleCardClick);
-    card.addEventListener('click', handleCardClick);
-  });
-
-  document.querySelectorAll('.fav-btn').forEach(btn => {
-    btn.removeEventListener('click', handleFavClick);
-    btn.addEventListener('click', handleFavClick);
-  });
-
-  document.querySelectorAll('.like-btn').forEach(btn => {
-    btn.removeEventListener('click', handleLikeClick);
-    btn.addEventListener('click', handleLikeClick);
-  });
-}
-
-function handleCardClick(e) {
-  if (e.target.closest('.fav-btn') || e.target.closest('.like-btn')) return;
-  const id = parseInt(this.dataset.id);
-  const idea = ideas.find(i => i.id === id);
-  if (idea) openModal(idea, this);
-}
-
-function handleFavClick(e) {
-  e.stopPropagation();
-  const id = parseInt(this.dataset.id);
-  toggleFav(id);
-}
-
-function handleLikeClick(e) {
-  e.stopPropagation();
-  const id = parseInt(this.dataset.id);
-  toggleLike(id);
-}
-
-// ===== МОДАЛ С АНИМАЦИЕЙ =====
-let isModalOpen = false;
-let currentCardElement = null;
-
-function openModal(idea, cardElement) {
-  if (isModalOpen) return;
-  isModalOpen = true;
-  currentCardElement = cardElement;
-
-  const isFav = currentUser && favorites.includes(idea.id);
-  const likeCount = likes[idea.id] || 0;
-  const comments = loadComments(idea.id);
-
-  modalContent.innerHTML = `
-    <div class="space-y-4">
-      <div class="flex justify-between items-start">
-        <h2 class="text-2xl md:text-3xl font-bold">${idea.name}</h2>
-        <button class="fav-btn ${isFav ? 'active' : ''}" data-id="${idea.id}">${isFav ? '❤️' : '🤍'}</button>
-      </div>
-      <div class="flex flex-wrap gap-2">
-        <span class="card-tag">${idea.category}</span>
-        <span class="card-tag">💰 $${idea.capital.toLocaleString()}</span>
-        <span class="card-tag">⚡ ${idea.complexity}</span>
-        <span class="card-tag">📈 ${idea.potential}</span>
-        <span class="rating-badge">⭐ ${idea.rating.toFixed(1)}</span>
-        <button class="like-btn" data-id="${idea.id}">👍 ${likeCount}</button>
-      </div>
-      <p class="text-gray-300 text-lg">${idea.desc}</p>
-      <div><span class="text-gray-400">Почему перспективная:</span> ${idea.why}</div>
-      <div><span class="text-gray-400">Плюсы:</span> ${idea.pros}</div>
-      <div><span class="text-gray-400">Минусы:</span> ${idea.cons}</div>
-      <div><span class="text-gray-400">Стартовый капитал:</span> $${idea.capital.toLocaleString()}</div>
-      <div><span class="text-gray-400">Как начать:</span> ${idea.how}</div>
-      <div><span class="text-gray-400">Риски:</span> ${idea.risks}</div>
-      
-      <div class="comments-section">
-        <h4 class="font-semibold mb-3">Комментарии (${comments.length})</h4>
-        <div class="comments-list">
-          ${comments.map(c => `
-            <div class="comment-item">
-              <div class="comment-author">${c.user_name}</div>
-              <div class="comment-text">${c.text}</div>
-              <div class="comment-time">${new Date(c.created_at).toLocaleString()}</div>
-            </div>
-          `).join('')}
-        </div>
-        <div class="comment-input-group">
-          <input type="text" id="commentInput" placeholder="Напишите комментарий..." ${!currentUser ? 'disabled' : ''} />
-          <button id="commentSubmitBtn" ${!currentUser ? 'disabled' : ''}>Отправить</button>
-        </div>
-      </div>
-    </div>
-  `;
-
-  // События для кнопок внутри модала
-  modalContent.querySelector('.fav-btn')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const id = parseInt(e.target.dataset.id);
-    toggleFav(id);
-    openModal(ideas.find(i => i.id === id), currentCardElement);
-  });
-
-  modalContent.querySelector('.like-btn')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const id = parseInt(e.target.dataset.id);
-    toggleLike(id);
-    openModal(ideas.find(i => i.id === id), currentCardElement);
-  });
-
-  // Отправка комментария
-  const commentInput = modalContent.querySelector('#commentInput');
-  const commentBtn = modalContent.querySelector('#commentSubmitBtn');
-  
-  commentBtn?.addEventListener('click', () => {
-    const text = commentInput.value.trim();
-    if (text) {
-      addComment(idea.id, text);
-      commentInput.value = '';
-      openModal(idea, currentCardElement);
-    }
-  });
-
-  commentInput?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') commentBtn?.click();
-  });
-
-  // Анимация открытия
-  const rect = cardElement?.getBoundingClientRect();
-  const windowWidth = window.innerWidth;
-  const windowHeight = window.innerHeight;
-
-  modalOverlay.classList.add('active');
-  document.body.classList.add('modal-open');
-
-  if (rect) {
-    const scaleX = Math.min(rect.width / 700, 0.8);
-    const scaleY = Math.min(rect.height / (windowHeight * 0.9), 0.8);
-    const scale = Math.min(scaleX, scaleY, 0.8);
-    const translateX = (rect.left + rect.width / 2) - windowWidth / 2;
-    const translateY = (rect.top + rect.height / 2) - windowHeight / 2;
-
-    modalWindow.style.transform = `scale(${scale}) translate(${translateX}px, ${translateY}px)`;
-    modalWindow.style.opacity = '0';
-    modalWindow.style.transition = 'none';
+  if (viewHistory.length >= 20 && !achievements.find(a => a.id === 'view20')) {
+    newAchievements.push({ id: 'view20', icon: '🔍', name: 'Исследователь', desc: 'Просмотрено 20 идей' });
   }
-
-  requestAnimationFrame(() => {
-    modalWindow.style.transition = 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.4s ease';
-    modalWindow.style.transform = 'scale(1) translate(0, 0)';
-    modalWindow.style.opacity = '1';
-  });
-}
-
-function closeModal() {
-  if (!isModalOpen) return;
-
-  const rect = currentCardElement?.getBoundingClientRect();
-  const windowWidth = window.innerWidth;
-  const windowHeight = window.innerHeight;
-
-  if (rect) {
-    const scaleX = Math.min(rect.width / 700, 0.8);
-    const scaleY = Math.min(rect.height / (windowHeight * 0.9), 0.8);
-    const scale = Math.min(scaleX, scaleY, 0.8);
-    const translateX = (rect.left + rect.width / 2) - windowWidth / 2;
-    const translateY = (rect.top + rect.height / 2) - windowHeight / 2;
-
-    modalWindow.style.transition = 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease';
-    modalWindow.style.transform = `scale(${scale}) translate(${translateX}px, ${translateY}px)`;
-    modalWindow.style.opacity = '0';
-  } else {
-    modalWindow.style.transition = 'opacity 0.3s ease';
-    modalWindow.style.opacity = '0';
-  }
-
-  setTimeout(() => {
-    modalOverlay.classList.remove('active');
-    document.body.classList.remove('modal-open');
-    modalWindow.style.transform = '';
-    modalWindow.style.opacity = '';
-    modalWindow.style.transition = '';
-    isModalOpen = false;
-    currentCardElement = null;
-  }, 400);
-}
-
-// ===== НАСТРОЙКИ =====
-const settingsModal = document.getElementById('settingsModal');
-const settingsBackdrop = document.getElementById('settingsBackdrop');
-const settingsCloseBtn = document.getElementById('settingsCloseBtn');
-const settingsBtn = document.getElementById('settingsBtn');
-
-function openSettings() { settingsModal.classList.add('active'); }
-function closeSettings() { settingsModal.classList.remove('active'); }
-
-settingsBtn?.addEventListener('click', openSettings);
-settingsBackdrop?.addEventListener('click', closeSettings);
-settingsCloseBtn?.addEventListener('click', closeSettings);
-
-// Переключение темы
-document.querySelectorAll('.theme-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const theme = btn.dataset.theme;
-    applyTheme(theme);
-    document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  });
-});
-
-// ===== ТЕМА =====
-function applyTheme(theme) {
-  currentTheme = theme;
-  localStorage.setItem('ideahub_theme', theme);
-  document.body.classList.toggle('light-theme', theme === 'light');
-}
-
-// ===== АВТОРИЗАЦИЯ МОДАЛЫ =====
-const loginModal = document.getElementById('loginModal');
-const loginBackdrop = document.getElementById('loginBackdrop');
-const loginCloseBtn = document.getElementById('loginCloseBtn');
-
-const registerModal = document.getElementById('registerModal');
-const registerBackdrop = document.getElementById('registerBackdrop');
-const registerCloseBtn = document.getElementById('registerCloseBtn');
-
-function openLogin() { loginModal.classList.add('active'); }
-function closeLogin() { loginModal.classList.remove('active'); }
-function openRegister() { registerModal.classList.add('active'); }
-function closeRegister() { registerModal.classList.remove('active'); }
-
-loginBtn?.addEventListener('click', openLogin);
-loginBackdrop?.addEventListener('click', closeLogin);
-loginCloseBtn?.addEventListener('click', closeLogin);
-
-registerBtn?.addEventListener('click', openRegister);
-registerBackdrop?.addEventListener('click', closeRegister);
-registerCloseBtn?.addEventListener('click', closeRegister);
-
-// Переключение между формами
-document.getElementById('switchToRegister')?.addEventListener('click', () => {
-  closeLogin();
-  setTimeout(openRegister, 200);
-});
-document.getElementById('switchToLogin')?.addEventListener('click', () => {
-  closeRegister();
-  setTimeout(openLogin, 200);
-});
-
-// Обработка форм
-document.getElementById('loginForm')?.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const email = document.getElementById('loginEmail').value.trim();
-  const password = document.getElementById('loginPassword').value;
-  
-  if (signIn(email, password)) {
-    closeLogin();
-    renderCards();
-  }
-});
-
-document.getElementById('registerForm')?.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const name = document.getElementById('registerName').value.trim();
-  const email = document.getElementById('registerEmail').value.trim();
-  const password = document.getElementById('registerPassword').value;
-  const confirmPassword = document.getElementById('registerConfirmPassword').value;
-  
-  if (password !== confirmPassword) {
-    showNotification('Пароли не совпадают', 'error');
-    return;
+  if (viewHistory.length >= 50 && !achievements.find(a => a.id === 'view50')) {
+    newAchievements.push({ id: 'view50', icon: '🧠', name: 'Эксперт', desc: 'Просмотрено 50 идей' });
   }
   
-  if (password.length < 6) {
-    showNotification('Пароль должен содержать минимум 6 символов', 'error');
-    return;
-  }
-  
-  if (signUp(name, email, password)) {
-    closeRegister();
-    renderCards();
-  }
-});
-
-// ===== ЗАКРЫТИЕ МОДАЛА ИДЕИ =====
-modalBackdrop?.addEventListener('click', closeModal);
-modalCloseBtn?.addEventListener('click', closeModal);
-
-// ===== ФИЛЬТРЫ, ПОИСК, СОРТИРОВКА =====
-filterPills.forEach(pill => {
-  pill.addEventListener('click', () => {
-    filterPills.forEach(p => p.classList.remove('active'));
-    pill.classList.add('active');
-    currentFilter = pill.dataset.filter;
-    renderCards();
-  });
-});
-
-searchInput.addEventListener('input', (e) => {
-  searchTerm = e.target.value;
-  renderCards();
-});
-
-sortSelect.addEventListener('change', (e) => {
-  currentSort = e.target.value;
-  renderCards();
-});
-
-// ===== КНОПКА "Исследовать" =====
-exploreBtn?.addEventListener('click', () => {
-  const catalog = document.getElementById('catalog');
-  if (catalog) {
-    catalog.scrollIntoView({ 
-      behavior: 'smooth',
-      block: 'start'
-    });
-    
-    // Анимация нажатия
-    exploreBtn.style.transform = 'scale(0.95)';
-    setTimeout(() => {
-      exploreBtn.style.transform = 'scale(1)';
-    }, 150);
-  }
-});
-
-// ===== ВЫХОД =====
-logoutBtn?.addEventListener('click', signOut);
-
-// ===== ИНИЦИАЛИЗАЦИЯ =====
-document.addEventListener('DOMContentLoaded', () => {
-  // Загружаем тему
-  applyTheme(currentTheme);
-  
-  // Загружаем пользователя
-  currentUser = getCurrentUser();
-  updateUI();
-  
-  // Рендерим карточки
-  renderCards();
-  
-  // Инициализация иконок Lucide
-  if (typeof lucide !== 'undefined' && lucide.createIcons) {
-    lucide.createIcons();
-  }
-
-  // GSAP для hero
-  if (typeof gsap !== 'undefined') {
-    gsap.from('.hero-title', { opacity: 0, y: 50, duration: 1, ease: 'power2.out' });
-    gsap.from('.hero-subtitle', { opacity: 0, y: 30, duration: 1, delay: 0.2, ease: 'power2.out' });
-    gsap.from('.hero-btn', { opacity: 0, scale: 0.8, duration: 0.8, delay: 0.4, ease: 'back.out(1.7)' });
-  }
-
-  console.log('✅ IdeaHub загружен!');
-  console.log(`📊 Всего идей: ${ideas.length}`);
-  console.log(`👤 Пользователь: ${currentUser ? currentUser.name : 'Гость'}`);
-});
+  // Лайки
+  const totalLikes = Object.values(likes).reduce((sum, val) => sum + val, 0);
+  if (totalLikes >= 1 && !achievements.find(a => a.id === 'like1')) {
+    newAchievements.push({ id: 'like1', icon: '❤️', name: 'Первый лайк', desc: 'Поставлен первый лай
