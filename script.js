@@ -1,21 +1,3 @@
-// ===== КОНФИГУРАЦИЯ SUPABASE (опционально) =====
-const SUPABASE_URL = 'https://ваш-проект.supabase.co'; // Замените при наличии
-const SUPABASE_KEY = 'ваш-public-ключ'; // Замените при наличии
-
-// Инициализация Supabase только если есть URL и ключ
-let supabase = null;
-try {
-  if (SUPABASE_URL && SUPABASE_URL !== 'https://ваш-проект.supabase.co' && 
-      SUPABASE_KEY && SUPABASE_KEY !== 'ваш-public-ключ') {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    console.log('✅ Supabase инициализирован');
-  } else {
-    console.log('ℹ️ Supabase не настроен, работаем в офлайн-режиме');
-  }
-} catch (e) {
-  console.log('ℹ️ Supabase не доступен, работаем в офлайн-режиме');
-}
-
 // ===== ДАННЫЕ =====
 const ideas = [
   { id: 1, name: "AI-помощник для бизнеса", category: "IT", capital: 25000, complexity: "Средняя", potential: "Высокий", rating: 4.8, desc: "Чат-боты и аналитика для малого бизнеса.", why: "Автоматизация продаж.", pros: "Быстрая окупаемость.", cons: "Конкуренция.", how: "Соберите MVP за 3 мес.", risks: "Технические сбои." },
@@ -61,10 +43,13 @@ const searchInput = document.getElementById('searchInput');
 const filterPills = document.querySelectorAll('.filter-pill');
 const sortSelect = document.getElementById('sortSelect');
 const exploreBtn = document.getElementById('exploreBtn');
-const userGreeting = document.getElementById('userGreeting');
 const loginBtn = document.getElementById('loginBtn');
 const registerBtn = document.getElementById('registerBtn');
 const logoutBtn = document.getElementById('logoutBtn');
+const userInfo = document.getElementById('userInfo');
+const guestActions = document.getElementById('guestActions');
+const userName = document.getElementById('userName');
+const userAvatar = document.getElementById('userAvatar');
 
 // ===== УВЕДОМЛЕНИЯ =====
 function showNotification(message, type = 'success') {
@@ -83,130 +68,99 @@ function showNotification(message, type = 'success') {
   }, 3000);
 }
 
-// ===== АВТОРИЗАЦИЯ (локальная, без Supabase) =====
-async function signUp(email, password, name) {
-  if (supabase) {
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { name } }
-      });
-      if (error) throw error;
-      showNotification('Аккаунт создан! Проверьте почту для подтверждения.');
-      closeRegister();
-      return data;
-    } catch (error) {
-      showNotification(error.message, 'error');
-      return null;
-    }
-  } else {
-    // Офлайн-режим
-    const users = JSON.parse(localStorage.getItem('ideahub_users')) || [];
-    if (users.find(u => u.email === email)) {
-      showNotification('Пользователь уже существует', 'error');
-      return null;
-    }
-    users.push({ email, password, name });
-    localStorage.setItem('ideahub_users', JSON.stringify(users));
-    showNotification('Аккаунт создан! Теперь войдите.');
-    closeRegister();
-    setTimeout(() => openLogin(), 500);
-    return { user: { email, user_metadata: { name } } };
-  }
+// ===== АВТОРИЗАЦИЯ (LocalStorage) =====
+function getUsers() {
+  return JSON.parse(localStorage.getItem('ideahub_users')) || [];
 }
 
-async function signIn(email, password) {
-  if (supabase) {
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-      if (error) throw error;
-      showNotification('Добро пожаловать!');
-      closeLogin();
-      await updateUserUI();
-      renderCards();
-      return data;
-    } catch (error) {
-      showNotification(error.message, 'error');
-      return null;
-    }
-  } else {
-    // Офлайн-режим
-    const users = JSON.parse(localStorage.getItem('ideahub_users')) || [];
-    const user = users.find(u => u.email === email && u.password === password);
-    if (!user) {
-      showNotification('Неверный email или пароль', 'error');
-      return null;
-    }
-    currentUser = { email: user.email, user_metadata: { name: user.name } };
-    localStorage.setItem('ideahub_current_user', JSON.stringify(currentUser));
-    showNotification('Добро пожаловать!');
-    closeLogin();
-    await updateUserUI();
-    renderCards();
-    return { user: currentUser };
-  }
+function saveUsers(users) {
+  localStorage.setItem('ideahub_users', JSON.stringify(users));
 }
 
-async function signOut() {
-  if (supabase) {
+function getCurrentUser() {
+  const saved = localStorage.getItem('ideahub_current_user');
+  if (saved) {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-    } catch (error) {
-      showNotification(error.message, 'error');
-      return;
-    }
-  }
-  currentUser = null;
-  localStorage.removeItem('ideahub_current_user');
-  await updateUserUI();
-  renderCards();
-  showNotification('Вы вышли из аккаунта');
-}
-
-async function updateUserUI() {
-  if (supabase) {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      currentUser = user;
+      return JSON.parse(saved);
     } catch (e) {
-      currentUser = null;
-    }
-  } else {
-    const saved = localStorage.getItem('ideahub_current_user');
-    if (saved) {
-      try {
-        currentUser = JSON.parse(saved);
-      } catch (e) {
-        currentUser = null;
-      }
-    } else {
-      currentUser = null;
+      return null;
     }
   }
+  return null;
+}
 
+function setCurrentUser(user) {
+  if (user) {
+    localStorage.setItem('ideahub_current_user', JSON.stringify(user));
+  } else {
+    localStorage.removeItem('ideahub_current_user');
+  }
+  currentUser = user;
+  updateUI();
+}
+
+function signUp(name, email, password) {
+  const users = getUsers();
+  
+  // Проверка на существующего пользователя
+  if (users.find(u => u.email === email)) {
+    showNotification('Пользователь с таким email уже существует', 'error');
+    return false;
+  }
+
+  // Создаём нового пользователя
+  const newUser = {
+    id: Date.now(),
+    name,
+    email,
+    password // В реальном проекте нужно хешировать!
+  };
+  
+  users.push(newUser);
+  saveUsers(users);
+  
+  // Автоматически входим
+  setCurrentUser({ id: newUser.id, name: newUser.name, email: newUser.email });
+  showNotification(`Добро пожаловать, ${name}!`);
+  return true;
+}
+
+function signIn(email, password) {
+  const users = getUsers();
+  const user = users.find(u => u.email === email && u.password === password);
+  
+  if (!user) {
+    showNotification('Неверный email или пароль', 'error');
+    return false;
+  }
+
+  setCurrentUser({ id: user.id, name: user.name, email: user.email });
+  showNotification(`Добро пожаловать, ${user.name}!`);
+  return true;
+}
+
+function signOut() {
+  setCurrentUser(null);
+  showNotification('Вы вышли из аккаунта');
+  renderCards();
+}
+
+function updateUI() {
   if (currentUser) {
-    const name = currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || 'Пользователь';
-    userGreeting.textContent = `👋 ${name}`;
-    loginBtn.style.display = 'none';
-    registerBtn.style.display = 'none';
-    logoutBtn.style.display = 'inline-block';
+    userInfo.style.display = 'flex';
+    guestActions.style.display = 'none';
+    userName.textContent = currentUser.name;
+    userAvatar.textContent = currentUser.name.charAt(0).toUpperCase();
     document.getElementById('profileSection').style.display = 'flex';
     document.getElementById('profileEmail').textContent = currentUser.email;
   } else {
-    userGreeting.textContent = '';
-    loginBtn.style.display = 'inline-block';
-    registerBtn.style.display = 'inline-block';
-    logoutBtn.style.display = 'none';
+    userInfo.style.display = 'none';
+    guestActions.style.display = 'flex';
     document.getElementById('profileSection').style.display = 'none';
   }
 }
 
-// ===== КОММЕНТАРИИ (локальные) =====
+// ===== КОММЕНТАРИИ =====
 function loadComments(ideaId) {
   const allComments = JSON.parse(localStorage.getItem('ideahub_comments')) || {};
   return allComments[ideaId] || [];
@@ -218,7 +172,7 @@ function saveComments(ideaId, comments) {
   localStorage.setItem('ideahub_comments', JSON.stringify(allComments));
 }
 
-function addCommentLocal(ideaId, text) {
+function addComment(ideaId, text) {
   if (!currentUser) {
     showNotification('Войдите, чтобы оставить комментарий', 'error');
     return;
@@ -227,7 +181,7 @@ function addCommentLocal(ideaId, text) {
   const comments = loadComments(ideaId);
   comments.push({
     id: Date.now(),
-    user_name: currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || 'Аноним',
+    user_name: currentUser.name,
     text: text,
     created_at: new Date().toISOString()
   });
@@ -236,77 +190,29 @@ function addCommentLocal(ideaId, text) {
 }
 
 // ===== ИЗБРАННОЕ И ЛАЙКИ =====
-async function toggleFav(id) {
-  if (supabase && currentUser) {
-    try {
-      const { data: existing } = await supabase
-        .from('favorites')
-        .select('*')
-        .eq('idea_id', id)
-        .eq('user_id', currentUser.id)
-        .single();
-
-      if (existing) {
-        await supabase
-          .from('favorites')
-          .delete()
-          .eq('idea_id', id)
-          .eq('user_id', currentUser.id);
-        favorites = favorites.filter(f => f !== id);
-      } else {
-        await supabase
-          .from('favorites')
-          .insert({ idea_id: id, user_id: currentUser.id });
-        if (!favorites.includes(id)) favorites.push(id);
-      }
-    } catch (e) {
-      showNotification('Ошибка при сохранении', 'error');
-      return;
-    }
+function toggleFav(id) {
+  if (!currentUser) {
+    showNotification('Войдите, чтобы добавить в избранное', 'error');
+    return;
+  }
+  
+  const index = favorites.indexOf(id);
+  if (index > -1) {
+    favorites.splice(index, 1);
   } else {
-    // Локальное хранение
-    if (favorites.includes(id)) {
-      favorites = favorites.filter(f => f !== id);
-    } else {
-      favorites.push(id);
-    }
+    favorites.push(id);
   }
   localStorage.setItem('ideahub_favs', JSON.stringify(favorites));
   renderCards();
 }
 
-async function toggleLike(id) {
-  if (supabase && currentUser) {
-    try {
-      const { data: existing } = await supabase
-        .from('likes')
-        .select('*')
-        .eq('idea_id', id)
-        .eq('user_id', currentUser.id)
-        .single();
-
-      if (existing) {
-        await supabase
-          .from('likes')
-          .delete()
-          .eq('idea_id', id)
-          .eq('user_id', currentUser.id);
-        likes[id] = (likes[id] || 1) - 1;
-        if (likes[id] <= 0) delete likes[id];
-      } else {
-        await supabase
-          .from('likes')
-          .insert({ idea_id: id, user_id: currentUser.id });
-        likes[id] = (likes[id] || 0) + 1;
-      }
-    } catch (e) {
-      showNotification('Ошибка при оценке', 'error');
-      return;
-    }
-  } else {
-    // Локальное хранение
-    likes[id] = (likes[id] || 0) + 1;
+function toggleLike(id) {
+  if (!currentUser) {
+    showNotification('Войдите, чтобы оценить идею', 'error');
+    return;
   }
+  
+  likes[id] = (likes[id] || 0) + 1;
   localStorage.setItem('ideahub_likes', JSON.stringify(likes));
   renderCards();
 }
@@ -336,7 +242,7 @@ function renderCards() {
   }
 
   filtered.forEach((idea, idx) => {
-    const isFav = favorites.includes(idea.id);
+    const isFav = currentUser && favorites.includes(idea.id);
     const likeCount = likes[idea.id] || 0;
     const card = document.createElement('div');
     card.className = 'glass-card';
@@ -391,16 +297,16 @@ function handleCardClick(e) {
   if (idea) openModal(idea, this);
 }
 
-async function handleFavClick(e) {
+function handleFavClick(e) {
   e.stopPropagation();
   const id = parseInt(this.dataset.id);
-  await toggleFav(id);
+  toggleFav(id);
 }
 
-async function handleLikeClick(e) {
+function handleLikeClick(e) {
   e.stopPropagation();
   const id = parseInt(this.dataset.id);
-  await toggleLike(id);
+  toggleLike(id);
 }
 
 // ===== МОДАЛ С АНИМАЦИЕЙ =====
@@ -412,7 +318,7 @@ function openModal(idea, cardElement) {
   isModalOpen = true;
   currentCardElement = cardElement;
 
-  const isFav = favorites.includes(idea.id);
+  const isFav = currentUser && favorites.includes(idea.id);
   const likeCount = likes[idea.id] || 0;
   const comments = loadComments(idea.id);
 
@@ -458,17 +364,17 @@ function openModal(idea, cardElement) {
   `;
 
   // События для кнопок внутри модала
-  modalContent.querySelector('.fav-btn')?.addEventListener('click', async (e) => {
+  modalContent.querySelector('.fav-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
     const id = parseInt(e.target.dataset.id);
-    await toggleFav(id);
+    toggleFav(id);
     openModal(ideas.find(i => i.id === id), currentCardElement);
   });
 
-  modalContent.querySelector('.like-btn')?.addEventListener('click', async (e) => {
+  modalContent.querySelector('.like-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
     const id = parseInt(e.target.dataset.id);
-    await toggleLike(id);
+    toggleLike(id);
     openModal(ideas.find(i => i.id === id), currentCardElement);
   });
 
@@ -479,12 +385,7 @@ function openModal(idea, cardElement) {
   commentBtn?.addEventListener('click', () => {
     const text = commentInput.value.trim();
     if (text) {
-      if (supabase && currentUser) {
-        // TODO: Реализовать комментарии через Supabase
-        addCommentLocal(idea.id, text);
-      } else {
-        addCommentLocal(idea.id, text);
-      }
+      addComment(idea.id, text);
       commentInput.value = '';
       openModal(idea, currentCardElement);
     }
@@ -617,19 +518,38 @@ document.getElementById('switchToLogin')?.addEventListener('click', () => {
 });
 
 // Обработка форм
-document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
+document.getElementById('loginForm')?.addEventListener('submit', (e) => {
   e.preventDefault();
-  const email = document.getElementById('loginEmail').value;
+  const email = document.getElementById('loginEmail').value.trim();
   const password = document.getElementById('loginPassword').value;
-  await signIn(email, password);
+  
+  if (signIn(email, password)) {
+    closeLogin();
+    renderCards();
+  }
 });
 
-document.getElementById('registerForm')?.addEventListener('submit', async (e) => {
+document.getElementById('registerForm')?.addEventListener('submit', (e) => {
   e.preventDefault();
-  const name = document.getElementById('registerName').value;
-  const email = document.getElementById('registerEmail').value;
+  const name = document.getElementById('registerName').value.trim();
+  const email = document.getElementById('registerEmail').value.trim();
   const password = document.getElementById('registerPassword').value;
-  await signUp(email, password, name);
+  const confirmPassword = document.getElementById('registerConfirmPassword').value;
+  
+  if (password !== confirmPassword) {
+    showNotification('Пароли не совпадают', 'error');
+    return;
+  }
+  
+  if (password.length < 6) {
+    showNotification('Пароль должен содержать минимум 6 символов', 'error');
+    return;
+  }
+  
+  if (signUp(name, email, password)) {
+    closeRegister();
+    renderCards();
+  }
 });
 
 // ===== ЗАКРЫТИЕ МОДАЛА ИДЕИ =====
@@ -658,19 +578,34 @@ sortSelect.addEventListener('change', (e) => {
 
 // ===== КНОПКА "Исследовать" =====
 exploreBtn?.addEventListener('click', () => {
-  document.getElementById('catalog').scrollIntoView({ behavior: 'smooth' });
+  const catalog = document.getElementById('catalog');
+  if (catalog) {
+    catalog.scrollIntoView({ 
+      behavior: 'smooth',
+      block: 'start'
+    });
+    
+    // Анимация нажатия
+    exploreBtn.style.transform = 'scale(0.95)';
+    setTimeout(() => {
+      exploreBtn.style.transform = 'scale(1)';
+    }, 150);
+  }
 });
 
 // ===== ВЫХОД =====
 logoutBtn?.addEventListener('click', signOut);
 
 // ===== ИНИЦИАЛИЗАЦИЯ =====
-document.addEventListener('DOMContentLoaded', async () => {
+document.addEventListener('DOMContentLoaded', () => {
+  // Загружаем тему
   applyTheme(currentTheme);
   
-  // Проверяем авторизацию
-  await updateUserUI();
+  // Загружаем пользователя
+  currentUser = getCurrentUser();
+  updateUI();
   
+  // Рендерим карточки
   renderCards();
   
   // Инициализация иконок Lucide
@@ -687,5 +622,5 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   console.log('✅ IdeaHub загружен!');
   console.log(`📊 Всего идей: ${ideas.length}`);
-  console.log(`💾 Режим: ${supabase ? 'Supabase' : 'Локальный'}`);
+  console.log(`👤 Пользователь: ${currentUser ? currentUser.name : 'Гость'}`);
 });
