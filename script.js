@@ -6,7 +6,7 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // ===== ДАННЫЕ ИДЕЙ =====
 const ideas = [
   { id: 1, name: "AI-помощник для бизнеса", category: "IT", capital: 25000, complexity: "Средняя", potential: "Высокий", rating: 4.8, desc: "Чат-боты и аналитика для малого бизнеса.", why: "Автоматизация продаж.", pros: "Быстрая окупаемость.", cons: "Конкуренция.", how: "Соберите MVP за 3 мес.", risks: "Технические сбои." },
-  { id: 2, name: "Доставка здоровой еды", category: "Еда", capital: 18000, complexity: "Средняя", potential: "Средний", rating: 4.2, desc: "Готовые рационы для offices.", why: "Рост ЗОЖ.", pros: "Постоянные клиенты.", cons: "Логистика.", how: "Начните с кухни.", risks: "Срок годности." },
+  { id: 2, name: "Доставка здоровой еды", category: "Еда", capital: 18000, complexity: "Средняя", potential: "Средний", rating: 4.2, desc: "Готовые рационы для офисов.", why: "Рост ЗОЖ.", pros: "Постоянные клиенты.", cons: "Логистика.", how: "Начните с кухни.", risks: "Срок годности." },
   { id: 3, name: "Клининг 2.0", category: "Услуги", capital: 8000, complexity: "Низкая", potential: "Высокий", rating: 4.5, desc: "Уборка с эко-средствами.", why: "Спрос на чистоту.", pros: "Низкий порог.", cons: "Много ручного труда.", how: "Закупите инвентарь.", risks: "Травмы." },
   { id: 4, name: "Коворкинг для фрилансеров", category: "Недвижимость", capital: 120000, complexity: "Высокая", potential: "Средний", rating: 3.9, desc: "Пространство с переговорными.", why: "Рост удаленки.", pros: "Долгосрочная аренда.", cons: "Высокая аренда.", how: "Найдите помещение.", risks: "Низкая заполняемость." },
   { id: 5, name: "Производство деревянных игрушек", category: "Производство", capital: 30000, complexity: "Средняя", potential: "Средний", rating: 4.0, desc: "Эко-игрушки ручной работы.", why: "Тренд на натуральное.", pros: "Уникальность.", cons: "Масштабирование.", how: "Мастерская + станки.", risks: "Сезонность." },
@@ -39,16 +39,7 @@ let currentCardElement = null;
 let isRegisterMode = false;
 let articles = [];
 
-// Переменные для обрезки изображений (Canvas Crop)
-let cropImageSource = new Image();
-let cropCanvas, cropCtx;
-let isDraggingCrop = false;
-let cropX = 50, cropY = 50;
-let lastMouseX = 0, lastMouseY = 0;
-
-// =======================================================================
-// УВЕДОМЛЕНИЯ
-// =======================================================================
+// ===== УВЕДОМЛЕНИЯ =====
 function showNotification(message, type = 'success') {
   const existing = document.querySelector('.notification');
   if (existing) existing.remove();
@@ -100,12 +91,10 @@ window.addEventListener('resize', () => {
 });
 
 // =======================================================================
-// АВТОРИЗАЦИЯ И УПРАВЛЕНИЕ ПРОФИЛЕМ (Выпадающее меню)
+// АВТОРИЗАЦИЯ (модальное окно #authModal)
 // =======================================================================
 const authModal = document.getElementById('authModal');
 const authBtn = document.getElementById('authBtn');
-const userProfileTrigger = document.getElementById('userProfileTrigger');
-const profileDropdown = document.getElementById('profileDropdown');
 const closeAuthBtn = document.getElementById('closeAuth');
 const authForm = document.getElementById('authForm');
 const modalTitle = document.getElementById('modalTitle');
@@ -118,16 +107,13 @@ const submitAuthBtn = document.getElementById('submitAuthBtn');
 const toggleAuthText = document.getElementById('toggleAuthText');
 const toggleAuthLink = document.getElementById('toggleAuthLink');
 
-// Элементы внутренностей профиля
-const headerAvatar = document.getElementById('headerAvatar');
-const dropdownAvatar = document.getElementById('dropdownAvatar');
-const profileName = document.getElementById('profileName');
-const profileEmail = document.getElementById('profileEmail');
-const logoutBtn = document.getElementById('logoutBtn');
-const accountAge = document.getElementById('accountAge');
-
-function openAuthModal() { authModal.style.display = 'flex'; }
-function closeAuthModal() { authModal.style.display = 'none'; authForm?.reset(); }
+function openAuthModal() {
+  authModal.style.display = 'flex';
+}
+function closeAuthModal() {
+  authModal.style.display = 'none';
+  authForm?.reset();
+}
 
 function setAuthMode(registerMode) {
   isRegisterMode = registerMode;
@@ -148,53 +134,31 @@ function setAuthMode(registerMode) {
   }
 }
 
-function updateAuthUI() {
+function updateAuthButton() {
+  if (!authBtn) return;
   if (currentUser) {
-    authBtn.style.display = 'none';
-    userProfileTrigger.style.display = 'flex';
-    
-    // Заполняем данные в выпадающем меню
-    const name = currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || 'Пользователь';
-    profileName.textContent = name;
-    profileEmail.textContent = currentUser.email;
-
-    // Считаем время жизни аккаунта
-    if (currentUser.created_at) {
-      const diffTime = Math.abs(new Date() - new Date(currentUser.created_at));
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      accountAge.textContent = `${diffDays} дн.`;
-    }
-
-    // Загружаем аватар, если он сохранен в метаданных
-    const userAvatar = currentUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${currentUser.id}`;
-    headerAvatar.src = userAvatar;
-    dropdownAvatar.src = userAvatar;
-    
-    // Считаем статы динамически
-    document.getElementById('statViews').textContent = ideas.length;
-    document.getElementById('statArticles').textContent = favorites.length; 
+    const name = currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || 'Профиль';
+    authBtn.textContent = `👋 ${name} · Выйти`;
   } else {
-    authBtn.style.display = 'block';
-    userProfileTrigger.style.display = 'none';
-    profileDropdown.classList.remove('active');
+    authBtn.textContent = 'Войти / Регистрация';
   }
 }
 
-// Переключатели видимости окон
-authBtn?.addEventListener('click', () => { setAuthMode(false); openAuthModal(); });
-closeAuthBtn?.addEventListener('click', closeAuthModal);
-authModal?.addEventListener('click', (e) => { if (e.target === authModal) closeAuthModal(); });
-toggleAuthLink?.addEventListener('click', (e) => { e.preventDefault(); setAuthMode(!isRegisterMode); });
-
-userProfileTrigger?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  profileDropdown.classList.toggle('active');
-});
-
-document.addEventListener('click', (e) => {
-  if (profileDropdown && !profileDropdown.contains(e.target) && e.target !== userProfileTrigger) {
-    profileDropdown.classList.remove('active');
+authBtn?.addEventListener('click', () => {
+  if (currentUser) {
+    signOut();
+  } else {
+    setAuthMode(false);
+    openAuthModal();
   }
+});
+closeAuthBtn?.addEventListener('click', closeAuthModal);
+authModal?.addEventListener('click', (e) => {
+  if (e.target === authModal) closeAuthModal();
+});
+toggleAuthLink?.addEventListener('click', (e) => {
+  e.preventDefault();
+  setAuthMode(!isRegisterMode);
 });
 
 authForm?.addEventListener('submit', async (e) => {
@@ -204,9 +168,11 @@ authForm?.addEventListener('submit', async (e) => {
 
   if (isRegisterMode) {
     const name = authNameInput.value;
-    if (await signUp(email, password, name)) closeAuthModal();
+    const result = await signUp(email, password, name);
+    if (result) closeAuthModal();
   } else {
-    if (await signIn(email, password)) closeAuthModal();
+    const result = await signIn(email, password);
+    if (result) closeAuthModal();
   }
 });
 
@@ -218,7 +184,7 @@ async function signUp(email, password, name) {
       options: { data: { name } }
     });
     if (error) throw error;
-    showNotification('Аккаунт создан! Пожалуйста, войдите.');
+    showNotification('Аккаунт создан! Проверьте почту для подтверждения.');
     return data;
   } catch (error) {
     showNotification(error.message, 'error');
@@ -232,7 +198,6 @@ async function signIn(email, password) {
     if (error) throw error;
     showNotification('Добро пожаловать!');
     await updateUserUI();
-    await loadUserData();
     renderCards();
     return data;
   } catch (error) {
@@ -241,131 +206,24 @@ async function signIn(email, password) {
   }
 }
 
-logoutBtn?.addEventListener('click', async () => {
+async function signOut() {
   try {
     const { error } = await supabaseClient.auth.signOut();
     if (error) throw error;
     currentUser = null;
-    favorites = [];
-    likes = {};
-    updateAuthUI();
+    await updateUserUI();
     renderCards();
-    showNotification('Вы вышли из системы');
+    showNotification('Вы вышли из аккаунта');
   } catch (error) {
     showNotification(error.message, 'error');
   }
-});
+}
 
 async function updateUserUI() {
   const { data: { user } } = await supabaseClient.auth.getUser();
   currentUser = user;
-  updateAuthUI();
+  updateAuthButton();
 }
-
-// =======================================================================
-// МЕХАНИЗМ ОБРЕЗКИ И ЗАГРУЗКИ АВАТАРА (Canvas Crop)
-// =======================================================================
-const avatarInput = document.getElementById('avatarInput');
-const cropModal = document.getElementById('cropModal');
-const cancelCropBtn = document.getElementById('cancelCropBtn');
-const saveCropBtn = document.getElementById('saveCropBtn');
-
-avatarInput?.addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = (event) => {
-    cropImageSource.src = event.target.result;
-    cropImageSource.onload = () => {
-      cropModal.style.display = 'flex';
-      initCropCanvas();
-    };
-  };
-  reader.readAsDataURL(file);
-});
-
-function initCropCanvas() {
-  cropCanvas = document.getElementById('cropCanvas');
-  cropCtx = cropCanvas.getContext('2d');
-  
-  cropCanvas.width = 330;
-  cropCanvas.height = 250;
-  
-  cropX = (cropCanvas.width - 150) / 2;
-  cropY = (cropCanvas.height - 150) / 2;
-  
-  drawCropScene();
-}
-
-function drawCropScene() {
-  cropCtx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
-  
-  // Вычисляем пропорции картинки, чтобы вписать её в холст
-  const scale = Math.min(cropCanvas.width / cropImageSource.width, cropCanvas.height / cropImageSource.height);
-  const iw = cropImageSource.width * scale;
-  const ih = cropImageSource.height * scale;
-  const ix = (cropCanvas.width - iw) / 2;
-  const iy = (cropCanvas.height - ih) / 2;
-  
-  cropCtx.drawImage(cropImageSource, ix, iy, iw, ih);
-}
-
-// Управление перетаскиванием на холсте
-document.getElementById('cropCanvas')?.addEventListener('mousedown', (e) => {
-  isDraggingCrop = true;
-  lastMouseX = e.clientX;
-  lastMouseY = e.clientY;
-});
-
-window.addEventListener('mousemove', (e) => {
-  if (!isDraggingCrop) return;
-  const dx = e.clientX - lastMouseX;
-  const dy = e.clientY - lastMouseY;
-  
-  cropX = Math.max(0, Math.min(cropCanvas.width - 150, cropX + dx));
-  cropY = Math.max(0, Math.min(cropCanvas.height - 150, cropY + dy));
-  
-  lastMouseX = e.clientX;
-  lastMouseY = e.clientY;
-  
-  // Смещаем сам canvas для симуляции перетаскивания под маской
-  cropCanvas.style.left = `${dx}px`;
-  cropCanvas.style.top = `${dy}px`;
-});
-
-window.addEventListener('mouseup', () => {
-  if (isDraggingCrop) {
-    isDraggingCrop = false;
-    cropCanvas.style.left = '0px';
-    cropCanvas.style.top = '0px';
-  }
-});
-
-cancelCropBtn?.addEventListener('click', () => { cropModal.style.display = 'none'; });
-
-saveCropBtn?.addEventListener('click', async () => {
-  const resultCanvas = document.createElement('canvas');
-  resultCanvas.width = 150;
-  resultCanvas.height = 150;
-  const rCtx = resultCanvas.getContext('2d');
-  
-  // Вырезаем кусок
-  rCtx.drawImage(cropCanvas, cropX, cropY, 150, 150, 0, 0, 150, 150);
-  const base64Image = resultCanvas.toDataURL('image/jpeg');
-  
-  // Сохраняем локально и отправляем в Supabase Metadata
-  headerAvatar.src = base64Image;
-  dropdownAvatar.src = base64Image;
-  cropModal.style.display = 'none';
-
-  if (currentUser) {
-    await supabaseClient.auth.updateUser({
-      data: { avatar_url: base64Image }
-    });
-    showNotification('Аватар успешно обновлен!');
-  }
-});
 
 // =======================================================================
 // КОММЕНТАРИИ
@@ -442,6 +300,7 @@ async function toggleLikeSupabase(ideaId) {
     return true;
   } catch (error) {
     console.error('Ошибка с лайком:', error);
+    showNotification('Ошибка при оценке', 'error');
     return false;
   }
 }
@@ -469,10 +328,10 @@ async function toggleFavSupabase(ideaId) {
 
     localStorage.setItem('ideahub_favs', JSON.stringify(favorites));
     renderCards();
-    updateAuthUI();
     return true;
   } catch (error) {
     console.error('Ошибка с избранным:', error);
+    showNotification('Ошибка при сохранении', 'error');
     return false;
   }
 }
@@ -496,7 +355,7 @@ async function loadUserData() {
       localStorage.setItem('ideahub_likes', JSON.stringify(likes));
     }
   } catch (error) {
-    console.error('Ошибка загрузки пользовательских данных:', error);
+    console.error('Ошибка загрузки данных:', error);
   }
 }
 
@@ -546,9 +405,9 @@ function renderCards() {
   if (window.lucide) lucide.createIcons();
 
   cardsGrid.querySelectorAll('.card-favorite').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
+    btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      await toggleFavSupabase(parseInt(btn.dataset.fav, 10));
+      toggleFavSupabase(parseInt(btn.dataset.fav, 10));
     });
   });
   cardsGrid.querySelectorAll('.glass-card').forEach(card => {
@@ -748,11 +607,12 @@ function openArticleModal(article) {
 }
 
 // =======================================================================
-// ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ СТРАНИЦЫ
+// ИНИЦИАЛИЗАЦИЯ
 // =======================================================================
 document.addEventListener('DOMContentLoaded', async () => {
   await updateUserUI();
   await loadUserData();
+
   renderCards();
 
   const active = document.querySelector('.nav-tab.active') || navTabs[0];
